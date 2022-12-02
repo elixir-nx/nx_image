@@ -1,0 +1,146 @@
+# Nx.Image Demonstration
+
+```elixir
+Mix.install([
+  {:nx, "~> 0.4.0"},
+  {:kino_vega_lite, "~> 0.1.6"},
+  {:kino, "~> 0.7.0"},
+  {:nx_image, git: "https://github.com/elixir-nx/nx_image.git"},
+  {:stb_image, "~> 0.5.2"},
+  {:vega_lite, "~> 0.1.6"},
+  {:file_upload_smart_cell, git: "https://github.com/akoutmos/file_upload_smart_cell.git"}
+])
+```
+
+## Upload your test image
+
+<!-- livebook:{"attrs":{"file_path":"/tmp/96EE50ED1A40800F788935E270B24E42","storage":"disk","variable":"data"},"kind":"Elixir.FileUploadSmartCell","livebook_object":"smart_cell"} -->
+
+```elixir
+data =
+  with file_path when is_binary(file_path) <- "/tmp/96EE50ED1A40800F788935E270B24E42",
+       true <- File.exists?(file_path),
+       false <- File.dir?(file_path) do
+    if Map.fetch!(
+         %{
+           "file_path" => "/tmp/96EE50ED1A40800F788935E270B24E42",
+           "storage" => "disk",
+           "variable" => "data"
+         },
+         "storage"
+       ) == "disk" do
+      file_path
+    else
+      file_contents = File.read!(file_path)
+      File.rm!(file_path)
+      file_contents
+    end
+  else
+    _ -> :no_file_uploaded
+  end
+
+Kino.nothing()
+```
+
+The file_upload_smart_cell currently defaults the "assign content to" to data.  When this notebook is reloaded, the default "assigns to" is back to data.  Let's leave the field as data and rename here in our notebook cells.  Also, this notebook assumes that the file is written to disk so that it can support jpeg and png images in the same manner.
+
+```elixir
+example_image_location = data
+```
+
+## Kino.Image display
+
+Let's load the image into Kino.Image.
+
+```elixir
+content = File.read!(example_image)
+Kino.Image.new(content, "image/png")
+```
+
+The content from Kino.Image can't be transformed into a tensor that NxImage can read because the binary is a long sequence of numbers.  The system doesn't have enough information to know the image height and width of the sequence of numbers.  Nor does it provide information about the number of channels.  JPEG has three channels, RGB, and PNG has 4, RGBA.  Transparency is the 4th PNG channel.
+
+```elixir
+kino_image_tensor = Nx.from_binary(content, :u8)
+```
+
+## Load image with StbImage
+
+With StbImage we can take a look at the shape of our uploaded image
+
+```elixir
+{:ok, img} = StbImage.read_file(example_image)
+data = img.data
+{h, w, c} = img.shape
+```
+
+We'll load the image into a tensor that matches the StbImage determined shape
+
+```elixir
+image_tensor =
+  Nx.from_binary(data, :u8)
+  |> Nx.reshape(img.shape)
+```
+
+Now that we have a tensor in the form of {Height, Width, Channels} we can load into NxImage.
+
+## NxImage Center Crop
+
+The first capability we'll look at is the center crop.
+
+```elixir
+image_tensors = NxImage.center_crop(image_tensor, {300, 300})
+```
+
+We've transformed the image from its original size to 300 x 300 by taking the pixels 150 above and below the image center.  Similarly we have the 150 pixels to the left and right of the center point.
+
+## Visualizing the Center Cropped Image
+
+Numbers are great, but most of us are visual focused.  Let's see what center crop looks like on our uploaded image.
+
+```elixir
+center_crop_image =
+  image_tensors
+  |> StbImage.from_nx()
+  |> StbImage.to_binary(:png)
+  |> Kino.Image.new(:png)
+
+label = Kino.Markdown.new("** Center of image **")
+
+center_image_display = [
+  Kino.Layout.grid([center_crop_image, label], boxed: true)
+]
+
+Kino.Layout.grid(center_image_display)
+```
+
+## NxImage Resize
+
+We'll resize the image.  Whether this resized image is shrunk or enlarged is dependent upon the original image size.  Resizing to a standard size can be useful when training visual models on a diverse set of source images.
+
+```elixir
+resized_tensors = NxImage.resize(image_tensor, {768, 768}, method: :nearest)
+```
+
+## Visualizing the Resized Image
+
+```elixir
+resized_image =
+  resized_tensors
+  |> StbImage.from_nx()
+  |> StbImage.to_binary(:png)
+  |> Kino.Image.new(:png)
+
+label = Kino.Markdown.new("** Resized image **")
+
+resized_image_display = [
+  Kino.Layout.grid([resized_image, label], boxed: true)
+]
+
+Kino.Layout.grid(resized_image_display)
+```
+
+Exercise: How do the options, bilinear bicubic lanczos3 lanczos5, affect your resized image?
+
+## Further Exploration
+
+We'll leave exploring the NxImage.normalize as an exercise.  Normalization is a useful for transfer learning situations where an original model is further trained on a set of images from your custom domain.  The original images had a particular mean and standard deviation.  When transfer learning from the base model, your source images are normalized in the same manner as the distribution of the original set of images.
