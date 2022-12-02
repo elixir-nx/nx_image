@@ -14,16 +14,16 @@ Mix.install([
 
 ## Upload your test image
 
-<!-- livebook:{"attrs":{"file_path":"/tmp/96EE50ED1A40800F788935E270B24E42","storage":"disk","variable":"data"},"kind":"Elixir.FileUploadSmartCell","livebook_object":"smart_cell"} -->
+<!-- livebook:{"attrs":{"file_path":"/tmp/E8143AF4E02D199D58BC58A4EAD5F5AF","storage":"disk","variable":"data"},"kind":"Elixir.FileUploadSmartCell","livebook_object":"smart_cell"} -->
 
 ```elixir
 data =
-  with file_path when is_binary(file_path) <- "/tmp/96EE50ED1A40800F788935E270B24E42",
+  with file_path when is_binary(file_path) <- "/tmp/E8143AF4E02D199D58BC58A4EAD5F5AF",
        true <- File.exists?(file_path),
        false <- File.dir?(file_path) do
     if Map.fetch!(
          %{
-           "file_path" => "/tmp/96EE50ED1A40800F788935E270B24E42",
+           "file_path" => "/tmp/E8143AF4E02D199D58BC58A4EAD5F5AF",
            "storage" => "disk",
            "variable" => "data"
          },
@@ -53,7 +53,7 @@ example_image_location = data
 Let's load the image into Kino.Image.
 
 ```elixir
-content = File.read!(example_image)
+content = File.read!(example_image_location)
 Kino.Image.new(content, "image/png")
 ```
 
@@ -68,7 +68,7 @@ kino_image_tensor = Nx.from_binary(content, :u8)
 With StbImage we can take a look at the shape of our uploaded image
 
 ```elixir
-{:ok, img} = StbImage.read_file(example_image)
+{:ok, img} = StbImage.read_file(example_image_location)
 data = img.data
 {h, w, c} = img.shape
 ```
