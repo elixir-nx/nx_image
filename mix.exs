@@ -28,7 +28,7 @@ defmodule NxImage.MixProject do
 
   defp deps do
     [
-      {:nx, "~> 0.4.0"},
+      {:nx, "~> 0.4"},
       {:ex_doc, "~> 0.29", only: :dev, runtime: false}
     ]
   end
