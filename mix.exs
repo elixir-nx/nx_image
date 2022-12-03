@@ -38,6 +38,7 @@ defmodule NxImage.MixProject do
       main: "NxImage",
       source_url: "https://github.com/elixir-nx/nx_image",
       source_ref: "v#{@version}",
+      extras: ["notebooks/examples.livemd"],
       groups_for_functions: [
         Transformation: &(&1[:type] == :transformation),
         Conversion: &(&1[:type] == :conversion)
