@@ -1,0 +1,104 @@
+# Examples
+
+```elixir
+Mix.install([
+  {:nx, "~> 0.4.0"},
+  {:nx_image, github: "elixir-nx/nx_image"},
+  {:kino, github: "livebook-dev/kino"}
+])
+```
+
+## Upload your test image
+
+Using a Livebook release newer than v0.7.2, we can add the new `Kino.Input.image/1` to upload an image to our notebook.
+
+```elixir
+image_input = Kino.Input.image("Uploaded Image")
+```
+
+We can use `Input.read/1` to retrieve the information about our image.
+
+```elixir
+%{data: content, format: _, height: height, width: width} = Kino.Input.read(image_input)
+```
+
+NxImage requires that the images be tensors in either HWC (default) or CHW
+order, with an arbitrary number of leading batch axes. The input data is
+already HWC, so creating a tensor is straightforward:
+
+```elixir
+image_tensor =
+  Nx.from_binary(content, :u8)
+  |> Nx.reshape({height, width, 3})
+```
+
+Now that we have a tensor in the shape of `{height, width, channels}` we operate on it using the `NxImage` module.
+
+## Center crop
+
+The first capability we'll look at is center cropping.
+
+```elixir
+center_cropped_tensor = NxImage.center_crop(image_tensor, {300, 300})
+```
+
+We've transformed the image from its original size to 300 x 300 by taking the pixels 150 above and below the image center.  Similarly we have the 150 pixels to the left and right of the center point.
+
+## Visualization
+
+Numbers are great, but most of us are visual focused. Let's see what center crop did to our uploaded image:
+
+```elixir
+Kino.Layout.grid(
+  [
+    Kino.Image.new(center_cropped_tensor),
+    Kino.Markdown.new("**Center of the image**")
+  ],
+  boxed: true
+)
+```
+
+## Resize
+
+We'll resize the image.  Whether this resized image is shrunk or enlarged is dependent upon the original image size.  Resizing to a standard size can be useful when training visual models on a diverse set of source images.
+
+```elixir
+resized_tensor = NxImage.resize(image_tensor, {768, 768}, method: :nearest)
+```
+
+Let's display the original image and the resized image. If you can't tell the differnce, try a non-square image, or resizing to a very small resolution instead.
+
+```elixir
+original_image = Kino.Image.new(image_tensor)
+original_label = Kino.Markdown.new("**Original image**")
+
+resized_image = Kino.Image.new(resized_tensor)
+resized_label = Kino.Markdown.new("**Resized image**")
+
+Kino.Layout.grid([
+  Kino.Layout.grid([original_image, original_label], boxed: true),
+  Kino.Layout.grid([resized_image, resized_label], boxed: true)
+])
+```
+
+Let's double check the shape of both images.
+
+```elixir
+{image_tensor.shape, resized_tensor.shape}
+```
+
+We can see that the resized image has a different shape from the original image shape.
+
+<!-- livebook:{"break_markdown":true} -->
+
+You can try other resize strategies: `:bilinear`, `:bicubic`, `:lanczos3`, `:lanczos5`. How do they affect the resulting image?
+
+## Further exploration
+
+There are other functions in the `NxImage` module.
+
+For example, `NxImage.normalize/3` can be useful for transfer learning, where an original model is further trained on a set of images from your custom domain. The original images had a particular mean and standard deviation. When transfer learning from the base model, your source images are normalized in the same manner as the distribution of the original set of images.
+
+<!-- livebook:{"break_markdown":true} -->
+
+> Note: in this notebook we were using the default `Nx.BinaryBackend` for all the operations. To speed up the operations you can configure an optimised backend or compiler, such as `EXLA`.
