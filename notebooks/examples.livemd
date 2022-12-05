@@ -3,14 +3,14 @@
 ```elixir
 Mix.install([
   {:nx, "~> 0.4.0"},
-  {:nx_image, github: "elixir-nx/nx_image"},
-  {:kino, github: "livebook-dev/kino"}
+  {:nx_image, "~> 0.1.0"},
+  {:kino, "~> 0.8.0"}
 ])
 ```
 
 ## Upload your test image
 
-Using a Livebook release newer than v0.7.2, we can add the new `Kino.Input.image/1` to upload an image to our notebook.
+Using a Livebook v0.8.0 or higher, we can add the new `Kino.Input.image/1` to upload an image to our notebook.
 
 ```elixir
 image_input = Kino.Input.image("Uploaded Image")
