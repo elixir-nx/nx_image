@@ -66,7 +66,7 @@ We'll resize the image.  Whether this resized image is shrunk or enlarged is dep
 resized_tensor = NxImage.resize(image_tensor, {768, 768}, method: :nearest)
 ```
 
-Let's display the original image and the resized image. If you can't tell the differnce, try a non-square image, or resizing to a very small resolution instead.
+Let's display the original image and the resized image. If you can't tell the difference, try a non-square image, or resizing to a very small resolution instead.
 
 ```elixir
 original_image = Kino.Image.new(image_tensor)
