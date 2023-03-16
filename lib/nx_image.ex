@@ -59,35 +59,29 @@ defmodule NxImage do
   deftransform center_crop(input, size, opts \\ []) when is_tuple(size) do
     opts = Keyword.validate!(opts, channels: :last)
     validate_image!(input)
-    center_crop_n(input, [size: size] ++ opts)
-  end
 
-  defnp center_crop_n(input, opts) do
     pad_config =
-      transform({input, opts}, fn {input, opts} ->
-        for {axis, size, out_size} <- spatial_axes_with_sizes(input, opts),
-            reduce: List.duplicate({0, 0, 0}, Nx.rank(input)) do
-          pad_config ->
-            low = div(size - out_size, 2)
-            high = low + out_size
-            List.replace_at(pad_config, axis, {-low, high - size, 0})
-        end
-      end)
+      for {axis, size, out_size} <- spatial_axes_with_sizes(input, size, opts[:channels]),
+          reduce: List.duplicate({0, 0, 0}, Nx.rank(input)) do
+        pad_config ->
+          low = div(size - out_size, 2)
+          high = low + out_size
+          List.replace_at(pad_config, axis, {-low, high - size, 0})
+      end
 
     Nx.pad(input, 0, pad_config)
   end
 
-  defnp spatial_axes_with_sizes(input, opts \\ []) do
-    {height_axis, width_axis} = spatial_axes(input, channels: opts[:channels])
-    {height, width} = size(input, channels: opts[:channels])
-    {out_height, out_width} = opts[:size]
+  deftransformp spatial_axes_with_sizes(input, size, channels) do
+    {height_axis, width_axis} = spatial_axes(input, channels)
+    {height, width} = size(input, channels)
+    {out_height, out_width} = size
     [{height_axis, height, out_height}, {width_axis, width, out_width}]
   end
 
   # Returns the image size as `{height, width}`.
-  defnp size(input, opts \\ []) do
-    opts = keyword!(opts, channels: :last)
-    {height_axis, width_axis} = spatial_axes(input, channels: opts[:channels])
+  deftransformp size(input, channels) do
+    {height_axis, width_axis} = spatial_axes(input, channels)
     {Nx.axis_size(input, height_axis), Nx.axis_size(input, width_axis)}
   end
 
@@ -156,60 +150,51 @@ defmodule NxImage do
   deftransform resize(input, size, opts \\ []) when is_tuple(size) do
     opts = Keyword.validate!(opts, channels: :last, method: :bilinear)
     validate_image!(input)
-    resize_n(input, [size: size] ++ opts)
+
+    {spatial_axes, out_shape} =
+      input
+      |> spatial_axes_with_sizes(size, opts[:channels])
+      |> Enum.reject(fn {_axis, size, out_size} -> Elixir.Kernel.==(size, out_size) end)
+      |> Enum.map_reduce(Nx.shape(input), fn {axis, _size, out_size}, out_shape ->
+        {axis, put_elem(out_shape, axis, out_size)}
+      end)
+
+    resized_input =
+      case opts[:method] do
+        :nearest ->
+          resize_nearest(input, out_shape, spatial_axes)
+
+        :bilinear ->
+          resize_with_kernel(input, out_shape, spatial_axes, &fill_linear_kernel/1)
+
+        :bicubic ->
+          resize_with_kernel(input, out_shape, spatial_axes, &fill_cubic_kernel/1)
+
+        :lanczos3 ->
+          resize_with_kernel(input, out_shape, spatial_axes, &fill_lanczos_kernel(3, &1))
+
+        :lanczos5 ->
+          resize_with_kernel(input, out_shape, spatial_axes, &fill_lanczos_kernel(5, &1))
+
+        method ->
+          raise ArgumentError,
+                "expected :method to be either of :nearest, :bilinear, :bicubic, " <>
+                  ":lanczos3, :lanczos5, got: #{inspect(method)}"
+      end
+
+    cast_to(resized_input, input)
   end
 
-  defnp resize_n(input, opts) do
-    transform({input, opts}, fn {input, opts} ->
-      {spatial_axes, out_shape} =
-        input
-        |> spatial_axes_with_sizes(opts)
-        |> Enum.reject(fn {_axis, size, out_size} -> Elixir.Kernel.==(size, out_size) end)
-        |> Enum.map_reduce(Nx.shape(input), fn {axis, _size, out_size}, out_shape ->
-          {axis, put_elem(out_shape, axis, out_size)}
-        end)
+  deftransformp spatial_axes(input, channels) do
+    axes =
+      case channels do
+        :first -> [-2, -1]
+        :last -> [-3, -2]
+      end
 
-      resized_input =
-        case opts[:method] do
-          :nearest ->
-            resize_nearest(input, out_shape, spatial_axes)
-
-          :bilinear ->
-            resize_with_kernel(input, out_shape, spatial_axes, &fill_linear_kernel/1)
-
-          :bicubic ->
-            resize_with_kernel(input, out_shape, spatial_axes, &fill_cubic_kernel/1)
-
-          :lanczos3 ->
-            resize_with_kernel(input, out_shape, spatial_axes, &fill_lanczos_kernel(3, &1))
-
-          :lanczos5 ->
-            resize_with_kernel(input, out_shape, spatial_axes, &fill_lanczos_kernel(5, &1))
-
-          method ->
-            raise ArgumentError,
-                  "expected :method to be either of :nearest, :bilinear, :bicubic, " <>
-                    ":lanczos3, :lanczos5, got: #{inspect(method)}"
-        end
-
-      cast_to(resized_input, input)
-    end)
-  end
-
-  defnp spatial_axes(input, opts \\ []) do
-    channels = opts[:channels]
-
-    transform({input, channels}, fn {input, channels} ->
-      axes =
-        case channels do
-          :first -> [-2, -1]
-          :last -> [-3, -2]
-        end
-
-      axes
-      |> Enum.map(&Nx.axis_index(input, &1))
-      |> List.to_tuple()
-    end)
+    axes
+    |> Enum.map(&Nx.axis_index(input, &1))
+    |> List.to_tuple()
   end
 
   defnp cast_to(left, right) do
@@ -228,56 +213,61 @@ defmodule NxImage do
     |> Nx.reshape(left, names: Nx.names(right))
   end
 
-  defnp resize_nearest(input, out_shape, spatial_axes) do
-    transform({input, out_shape, spatial_axes}, fn {input, out_shape, spatial_axes} ->
-      singular_shape = List.duplicate(1, Nx.rank(input)) |> List.to_tuple()
+  deftransformp resize_nearest(input, out_shape, spatial_axes) do
+    singular_shape = List.duplicate(1, Nx.rank(input)) |> List.to_tuple()
 
-      for axis <- spatial_axes, reduce: input do
-        input ->
-          input_shape = Nx.shape(input)
-          input_size = elem(input_shape, axis)
-          output_size = elem(out_shape, axis)
-          inv_scale = input_size / output_size
-          offset = (Nx.iota({output_size}) + 0.5) * inv_scale
-          offset = offset |> Nx.floor() |> Nx.as_type({:s, 32})
+    for axis <- spatial_axes, reduce: input do
+      input ->
+        input_shape = Nx.shape(input)
+        input_size = elem(input_shape, axis)
+        output_size = elem(out_shape, axis)
+        inv_scale = input_size / output_size
+        offset = Nx.iota({output_size}) |> Nx.add(0.5) |> Nx.multiply(inv_scale)
+        offset = offset |> Nx.floor() |> Nx.as_type({:s, 32})
 
-          offset =
-            offset
-            |> Nx.reshape(put_elem(singular_shape, axis, output_size))
-            |> Nx.broadcast(put_elem(input_shape, axis, output_size))
+        offset =
+          offset
+          |> Nx.reshape(put_elem(singular_shape, axis, output_size))
+          |> Nx.broadcast(put_elem(input_shape, axis, output_size))
 
-          Nx.take_along_axis(input, offset, axis: axis)
-      end
-    end)
+        Nx.take_along_axis(input, offset, axis: axis)
+    end
   end
 
   @f32_eps :math.pow(2, -23)
 
-  defnp resize_with_kernel(input, out_shape, spatial_axes, kernel_fun) do
-    transform({input, out_shape, spatial_axes}, fn {input, out_shape, spatial_axes} ->
-      for axis <- spatial_axes, reduce: input do
-        input ->
-          input_shape = Nx.shape(input)
-          input_size = elem(input_shape, axis)
-          output_size = elem(out_shape, axis)
+  deftransformp resize_with_kernel(input, out_shape, spatial_axes, kernel_fun) do
+    for axis <- spatial_axes, reduce: input do
+      input ->
+        resize_axis_with_kernel(input,
+          axis: axis,
+          output_size: elem(out_shape, axis),
+          kernel_fun: kernel_fun
+        )
+    end
+  end
 
-          inv_scale = input_size / output_size
-          kernel_scale = Nx.max(1, inv_scale)
+  defnp resize_axis_with_kernel(input, opts) do
+    axis = opts[:axis]
+    output_size = opts[:output_size]
+    kernel_fun = opts[:kernel_fun]
 
-          sample_f = (Nx.iota({1, output_size}) + 0.5) * inv_scale - 0.5
-          x = Nx.abs(sample_f - Nx.iota({input_size, 1})) / kernel_scale
-          weights = kernel_fun.(x)
+    input_size = Nx.axis_size(input, axis)
 
-          weights_sum = Nx.sum(weights, axes: [0], keep_axes: true)
+    inv_scale = input_size / output_size
+    kernel_scale = max(1, inv_scale)
 
-          weights =
-            Nx.select(Nx.abs(weights) > 1000 * @f32_eps, safe_divide(weights, weights_sum), 0)
+    sample_f = (Nx.iota({1, output_size}) + 0.5) * inv_scale - 0.5
+    x = Nx.abs(sample_f - Nx.iota({input_size, 1})) / kernel_scale
+    weights = kernel_fun.(x)
 
-          input = Nx.dot(input, [axis], weights, [0])
-          # The transformed axis is moved to the end, so we transpose back
-          reorder_axis(input, -1, axis)
-      end
-    end)
+    weights_sum = Nx.sum(weights, axes: [0], keep_axes: true)
+
+    weights = Nx.select(Nx.abs(weights) > 1000 * @f32_eps, safe_divide(weights, weights_sum), 0)
+
+    input = Nx.dot(input, [axis], weights, [0])
+    # The transformed axis is moved to the end, so we transpose back
+    reorder_axis(input, -1, axis)
   end
 
   defnp fill_linear_kernel(x) do
@@ -303,13 +293,11 @@ defmodule NxImage do
     x / Nx.select(y != 0, y, 1)
   end
 
-  defnp reorder_axis(tensor, axis, target_axis) do
-    transform({tensor, axis, target_axis}, fn {tensor, axis, target_axis} ->
-      axes = Nx.axes(tensor)
-      {source_axis, axes} = List.pop_at(axes, axis)
-      axes = List.insert_at(axes, target_axis, source_axis)
-      Nx.transpose(tensor, axes: axes)
-    end)
+  deftransformp reorder_axis(tensor, axis, target_axis) do
+    axes = Nx.axes(tensor)
+    {source_axis, axes} = List.pop_at(axes, axis)
+    axes = List.insert_at(axes, target_axis, source_axis)
+    Nx.transpose(tensor, axes: axes)
   end
 
   @doc """
@@ -347,13 +335,13 @@ defmodule NxImage do
     method = opts[:method]
     channels = opts[:channels]
 
-    {height, width} = size(input, channels: channels)
-    {out_height, out_width} = transform({height, width, size}, &resize_short_size/1)
+    {height, width} = size(input, channels)
+    {out_height, out_width} = resize_short_size(height, width, size)
 
     resize(input, {out_height, out_width}, method: method, channels: channels)
   end
 
-  defp resize_short_size({height, width, size}) do
+  deftransformp resize_short_size(height, width, size) do
     {short, long} = if height < width, do: {height, width}, else: {width, height}
 
     out_short = size
