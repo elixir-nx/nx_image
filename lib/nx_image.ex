@@ -333,6 +333,10 @@ defmodule NxImage do
 
     * `:method` - the resizing method to use, same as `resize/2`
 
+    * `:antialias` - whether an anti-aliasing filter should be used
+      when downsampling. This has no effect with upsampling. Defaults
+      to `true`
+
     * `:channels` - channels location, either `:first` or `:last`.
       Defaults to `:last`
 
@@ -351,7 +355,7 @@ defmodule NxImage do
   """
   @doc type: :transformation
   deftransform resize_short(input, size, opts \\ []) when is_integer(size) do
-    opts = Keyword.validate!(opts, channels: :last, method: :bilinear)
+    opts = Keyword.validate!(opts, channels: :last, method: :bilinear, antialias: true)
     validate_image!(input)
     resize_short_n(input, [size: size] ++ opts)
   end
@@ -359,12 +363,17 @@ defmodule NxImage do
   defnp resize_short_n(input, opts) do
     size = opts[:size]
     method = opts[:method]
+    antialias = opts[:antialias]
     channels = opts[:channels]
 
     {height, width} = size(input, channels)
     {out_height, out_width} = resize_short_size(height, width, size)
 
-    resize(input, {out_height, out_width}, method: method, channels: channels)
+    resize(input, {out_height, out_width},
+      method: method,
+      antialias: antialias,
+      channels: channels
+    )
   end
 
   deftransformp resize_short_size(height, width, size) do
