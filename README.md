@@ -12,7 +12,7 @@ You can add the `:nx_image` dependency to your `mix.exs`:
 ```elixir
 def deps do
   [
-    {:nx_image, "~> 0.1.1"}
+    {:nx_image, "~> 0.1.2"}
   ]
 end
 ```

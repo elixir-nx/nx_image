@@ -2,9 +2,9 @@
 
 ```elixir
 Mix.install([
-  {:nx, "~> 0.5.0"},
-  {:nx_image, "~> 0.1.1"},
-  {:kino, "~> 0.8.0"}
+  {:nx, "~> 0.6.0"},
+  {:nx_image, "~> 0.1.2"},
+  {:kino, "~> 0.12.0"}
 ])
 ```
 
@@ -19,7 +19,9 @@ image_input = Kino.Input.image("Uploaded Image")
 We can use `Input.read/1` to retrieve the information about our image.
 
 ```elixir
-%{data: content, format: _, height: height, width: width} = Kino.Input.read(image_input)
+%{file_ref: file_ref, format: :rgb, height: height, width: width} = Kino.Input.read(image_input)
+
+content = file_ref |> Kino.Input.file_path() |> File.read!()
 ```
 
 NxImage requires that the images be tensors in either HWC (default) or CHW
