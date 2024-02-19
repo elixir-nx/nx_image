@@ -94,6 +94,10 @@ defmodule NxImage do
       `:bilinear`, `:bicubic`, `:lanczos3`, `:lanczos5`. Defaults to
       `:bilinear`
 
+    * `:antialias` - whether an anti-aliasing filter should be used
+      when downsampling. This has no effect with upsampling. Defaults
+      to `true`
+
     * `:channels` - channels location, either `:first` or `:last`.
       Defaults to `:last`
 
@@ -148,7 +152,7 @@ defmodule NxImage do
   """
   @doc type: :transformation
   deftransform resize(input, size, opts \\ []) when is_tuple(size) do
-    opts = Keyword.validate!(opts, channels: :last, method: :bilinear)
+    opts = Keyword.validate!(opts, channels: :last, method: :bilinear, antialias: true)
     validate_image!(input)
 
     {spatial_axes, out_shape} =
@@ -159,22 +163,36 @@ defmodule NxImage do
         {axis, put_elem(out_shape, axis, out_size)}
       end)
 
+    antialias = opts[:antialias]
+
     resized_input =
       case opts[:method] do
         :nearest ->
           resize_nearest(input, out_shape, spatial_axes)
 
         :bilinear ->
-          resize_with_kernel(input, out_shape, spatial_axes, &fill_linear_kernel/1)
+          resize_with_kernel(input, out_shape, spatial_axes, antialias, &fill_linear_kernel/1)
 
         :bicubic ->
-          resize_with_kernel(input, out_shape, spatial_axes, &fill_cubic_kernel/1)
+          resize_with_kernel(input, out_shape, spatial_axes, antialias, &fill_cubic_kernel/1)
 
         :lanczos3 ->
-          resize_with_kernel(input, out_shape, spatial_axes, &fill_lanczos_kernel(3, &1))
+          resize_with_kernel(
+            input,
+            out_shape,
+            spatial_axes,
+            antialias,
+            &fill_lanczos_kernel(3, &1)
+          )
 
         :lanczos5 ->
-          resize_with_kernel(input, out_shape, spatial_axes, &fill_lanczos_kernel(5, &1))
+          resize_with_kernel(
+            input,
+            out_shape,
+            spatial_axes,
+            antialias,
+            &fill_lanczos_kernel(5, &1)
+          )
 
         method ->
           raise ArgumentError,
@@ -236,12 +254,13 @@ defmodule NxImage do
 
   @f32_eps :math.pow(2, -23)
 
-  deftransformp resize_with_kernel(input, out_shape, spatial_axes, kernel_fun) do
+  deftransformp resize_with_kernel(input, out_shape, spatial_axes, antialias, kernel_fun) do
     for axis <- spatial_axes, reduce: input do
       input ->
         resize_axis_with_kernel(input,
           axis: axis,
           output_size: elem(out_shape, axis),
+          antialias: antialias,
           kernel_fun: kernel_fun
         )
     end
@@ -250,12 +269,19 @@ defmodule NxImage do
   defnp resize_axis_with_kernel(input, opts) do
     axis = opts[:axis]
     output_size = opts[:output_size]
+    antialias = opts[:antialias]
     kernel_fun = opts[:kernel_fun]
 
     input_size = Nx.axis_size(input, axis)
 
     inv_scale = input_size / output_size
-    kernel_scale = max(1, inv_scale)
+
+    kernel_scale =
+      if antialias do
+        max(1, inv_scale)
+      else
+        1
+      end
 
     sample_f = (Nx.iota({1, output_size}) + 0.5) * inv_scale - 0.5
     x = Nx.abs(sample_f - Nx.iota({input_size, 1})) / kernel_scale
