@@ -1,7 +1,7 @@
 defmodule NxImage.MixProject do
   use Mix.Project
 
-  @version "0.1.2"
+  @version "0.2.0"
   @description "Image processing in Nx"
 
   def project do
@@ -28,7 +28,7 @@ defmodule NxImage.MixProject do
 
   defp deps do
     [
-      {:nx, "~> 0.4"},
+      {:nx, "~> 1.0"},
       {:ex_doc, "~> 0.29", only: :dev, runtime: false}
     ]
   end
